@@ -143,6 +143,36 @@ CI fails → agent gets the logs and fixes it. Reviewer requests changes → age
 
 With `tracker: { plugin: local }`, AO stores each issue as `.ao/issues/<ID>.yaml` plus `.ao/issues/<ID>.md`, uses pseudo URLs like `local-issue://TASK-1`, and appends `updateIssue.comment` entries into a reserved Markdown `## History` section. v1 intentionally does not add file locking, a rich comment timeline, or a dedicated issue-body UI.
 
+### Local Tracker Workflow In This Fork
+
+This fork extends the built-in local tracker workflow so local issues are a first-class CLI concept, not just a storage backend. In addition to configuring:
+
+```yaml
+projects:
+  my-app:
+    path: ~/my-app
+    defaultBranch: main
+    tracker:
+      plugin: local
+      issuesPath: .ao/issues
+      idPrefix: TASK
+```
+
+you can now create and inspect local tracker issues directly from AO:
+
+```bash
+ao issue create "Refactor datasource naming" \
+  --description "Rename datasource/data item terminology to data model terms" \
+  --backlog
+
+ao issue list --label agent:backlog
+ao issue list --state open
+```
+
+This is the canonical way to create local issues for orchestrator-managed work. When the orchestrator needs a real local issue, it should use `ao issue create` rather than writing an ad-hoc repo document as a substitute.
+
+If you want a purely local workflow, you can omit `scm:` entirely and keep only `tracker: { plugin: local }`. In that mode AO still manages local issues, worktrees, and sessions, but PR / CI / review integrations are unavailable.
+
 See [`agent-orchestrator.yaml.example`](agent-orchestrator.yaml.example) for the full reference, or run `ao config-help` for the complete schema.
 
 ## Remote Access
