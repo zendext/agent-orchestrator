@@ -226,6 +226,25 @@ describe("tracker-local plugin", () => {
     expect(tracker.branchName("BUG-1", project)).toBe("feat/BUG-1");
   });
 
+  it("rejects unsafe idPrefix values before generating local issue state", async () => {
+    const project = makeProject(tempDir, {
+      plugin: "local",
+      idPrefix: "../TASK 1",
+    });
+
+    await expect(
+      tracker.createIssue!(
+        {
+          title: "Fix login bug",
+          description: "Main issue description here.",
+        },
+        project,
+      ),
+    ).rejects.toThrow(
+      'Invalid tracker-local idPrefix "../TASK 1". Use a prefix that starts with a letter and contains only letters, numbers, hyphens, or underscores.',
+    );
+  });
+
   it("uses explicit branchName from metadata when present", async () => {
     const project = makeProject(tempDir);
     await tracker.createIssue!(

@@ -16,6 +16,7 @@ const DEFAULT_ISSUES_PATH = ".ao/issues";
 const DEFAULT_ID_PREFIX = "TASK";
 const LOCAL_ISSUE_SCHEME = "local-issue://";
 const HISTORY_SECTION_HEADING = "## History";
+const SAFE_ID_PREFIX_PATTERN = /^[A-Za-z][A-Za-z0-9_-]*$/u;
 
 type LocalIssueState = Issue["state"];
 
@@ -94,10 +95,23 @@ function parseState(value: unknown, context: string): LocalIssueState {
 
 function normalizeIdPrefix(trackerConfig?: TrackerConfig): string {
   const rawPrefix = trackerConfig?.["idPrefix"];
-  if (typeof rawPrefix !== "string" || rawPrefix.trim().length === 0) {
+  if (typeof rawPrefix !== "string") {
     return DEFAULT_ID_PREFIX;
   }
-  return rawPrefix.trim();
+
+  const trimmedPrefix = rawPrefix.trim();
+  if (trimmedPrefix.length === 0) {
+    return DEFAULT_ID_PREFIX;
+  }
+
+  if (!SAFE_ID_PREFIX_PATTERN.test(trimmedPrefix)) {
+    throw new Error(
+      `Invalid tracker-local idPrefix "${trimmedPrefix}". ` +
+        "Use a prefix that starts with a letter and contains only letters, numbers, hyphens, or underscores.",
+    );
+  }
+
+  return trimmedPrefix;
 }
 
 function resolveIssuesDir(project: ProjectConfig): string {
