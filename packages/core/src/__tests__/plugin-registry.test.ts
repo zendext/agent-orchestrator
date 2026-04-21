@@ -188,6 +188,20 @@ describe("loadBuiltins", () => {
     );
   });
 
+  it("registers the local tracker from importFn", async () => {
+    const registry = createPluginRegistry();
+    const fakeTracker = makePlugin("tracker", "local");
+
+    await registry.loadBuiltins(undefined, async (pkg: string) => {
+      if (pkg === "@aoagents/ao-plugin-tracker-local") return fakeTracker;
+      throw new Error(`Not found: ${pkg}`);
+    });
+
+    expect(registry.list("tracker")).toContainEqual(
+      expect.objectContaining({ name: "local", slot: "tracker" }),
+    );
+  });
+
   it("passes configured notifier plugin config to create()", async () => {
     const registry = createPluginRegistry();
     const fakeWebhookNotifier = makePlugin("notifier", "webhook");
@@ -263,7 +277,9 @@ describe("loadBuiltins", () => {
     });
 
     expect(fakeSlackNotifier.create).toHaveBeenCalledTimes(2);
-    expect(registry.get<{ _config: Record<string, unknown> }>("notifier", "alerts")?._config).toEqual({
+    expect(
+      registry.get<{ _config: Record<string, unknown> }>("notifier", "alerts")?._config,
+    ).toEqual({
       webhookUrl: "https://hooks.slack.com/services/alerts",
       channel: "#alerts",
       configPath: "/test/config.yaml",
@@ -304,12 +320,16 @@ describe("loadBuiltins", () => {
       throw new Error(`Not found: ${pkg}`);
     });
 
-    expect(registry.get<{ _config: Record<string, unknown> }>("notifier", "slack")?._config).toEqual({
+    expect(
+      registry.get<{ _config: Record<string, unknown> }>("notifier", "slack")?._config,
+    ).toEqual({
       webhookUrl: "https://hooks.slack.com/services/default",
       channel: "#general",
       configPath: "/test/config.yaml",
     });
-    expect(registry.get<{ _config: Record<string, unknown> }>("notifier", "alerts")?._config).toEqual({
+    expect(
+      registry.get<{ _config: Record<string, unknown> }>("notifier", "alerts")?._config,
+    ).toEqual({
       webhookUrl: "https://hooks.slack.com/services/alerts",
       channel: "#alerts",
       configPath: "/test/config.yaml",
@@ -390,7 +410,9 @@ describe("loadBuiltins", () => {
       return null;
     });
 
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('"path" field conflicts with reserved'));
+    expect(stderrSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"path" field conflicts with reserved'),
+    );
     stderrSpy.mockRestore();
 
     // Plugin should not be registered due to config error
@@ -596,7 +618,12 @@ describe("External plugin manifest validation", () => {
     const registry = createPluginRegistry();
 
     const mockPlugin = {
-      manifest: { name: "jira", slot: "tracker" as const, version: "1.0.0", description: "Jira tracker" },
+      manifest: {
+        name: "jira",
+        slot: "tracker" as const,
+        version: "1.0.0",
+        description: "Jira tracker",
+      },
       create: vi.fn(() => ({})),
     };
 
@@ -637,7 +664,12 @@ describe("External plugin manifest validation", () => {
     const registry = createPluginRegistry();
 
     const mockPlugin = {
-      manifest: { name: "jira-enterprise", slot: "tracker" as const, version: "1.0.0", description: "Jira Enterprise" },
+      manifest: {
+        name: "jira-enterprise",
+        slot: "tracker" as const,
+        version: "1.0.0",
+        description: "Jira Enterprise",
+      },
       create: vi.fn(() => ({})),
     };
 
@@ -687,7 +719,12 @@ describe("External plugin manifest validation", () => {
     const registry = createPluginRegistry();
 
     const mockPlugin = {
-      manifest: { name: "jira", slot: "tracker" as const, version: "1.0.0", description: "Jira tracker" },
+      manifest: {
+        name: "jira",
+        slot: "tracker" as const,
+        version: "1.0.0",
+        description: "Jira tracker",
+      },
       create: vi.fn(() => ({})),
     };
 
@@ -732,7 +769,12 @@ describe("External plugin manifest validation", () => {
     const registry = createPluginRegistry();
 
     const mockPlugin = {
-      manifest: { name: "ms-teams", slot: "notifier" as const, version: "1.0.0", description: "Teams notifier" },
+      manifest: {
+        name: "ms-teams",
+        slot: "notifier" as const,
+        version: "1.0.0",
+        description: "Teams notifier",
+      },
       create: vi.fn(() => ({})),
     };
 
@@ -778,7 +820,12 @@ describe("External plugin manifest validation", () => {
     const registry = createPluginRegistry();
 
     const mockPlugin = {
-      manifest: { name: "ms-teams", slot: "notifier" as const, version: "1.0.0", description: "Teams notifier" },
+      manifest: {
+        name: "ms-teams",
+        slot: "notifier" as const,
+        version: "1.0.0",
+        description: "Teams notifier",
+      },
       create: vi.fn(() => ({})),
     };
 
@@ -838,7 +885,12 @@ describe("External plugin manifest validation", () => {
     const registry = createPluginRegistry();
 
     const mockPlugin = {
-      manifest: { name: "ms-teams", slot: "notifier" as const, version: "1.0.0", description: "Teams notifier" },
+      manifest: {
+        name: "ms-teams",
+        slot: "notifier" as const,
+        version: "1.0.0",
+        description: "Teams notifier",
+      },
       create: vi.fn((pluginConfig?: Record<string, unknown>) => ({
         name: "ms-teams",
         _config: pluginConfig,
@@ -885,7 +937,9 @@ describe("External plugin manifest validation", () => {
 
     expect(config.notifiers?.alerts?.plugin).toBe("ms-teams");
     expect(config.notifiers?.ops?.plugin).toBe("ms-teams");
-    expect(registry.get<{ _config: Record<string, unknown> }>("notifier", "alerts")?._config).toEqual({
+    expect(
+      registry.get<{ _config: Record<string, unknown> }>("notifier", "alerts")?._config,
+    ).toEqual({
       webhookUrl: "https://teams.example/alerts",
       configPath: "/test/config.yaml",
     });
@@ -900,7 +954,12 @@ describe("External plugin manifest validation", () => {
     const registry = createPluginRegistry();
 
     const mockPlugin = {
-      manifest: { name: "jira", slot: "notifier" as const, version: "1.0.0", description: "Wrong slot!" },
+      manifest: {
+        name: "jira",
+        slot: "notifier" as const,
+        version: "1.0.0",
+        description: "Wrong slot!",
+      },
       create: vi.fn(() => ({})),
     };
 
@@ -935,7 +994,7 @@ describe("External plugin manifest validation", () => {
     await registry.loadFromConfig(config, importFn);
 
     expect(stderrSpy).toHaveBeenCalledWith(
-      expect.stringContaining("has slot \"notifier\" but was configured as \"tracker\""),
+      expect.stringContaining('has slot "notifier" but was configured as "tracker"'),
     );
     stderrSpy.mockRestore();
   });
@@ -944,7 +1003,12 @@ describe("External plugin manifest validation", () => {
     const registry = createPluginRegistry();
 
     const mockPlugin = {
-      manifest: { name: "jira-cloud", slot: "tracker" as const, version: "1.0.0", description: "Jira Cloud" },
+      manifest: {
+        name: "jira-cloud",
+        slot: "tracker" as const,
+        version: "1.0.0",
+        description: "Jira Cloud",
+      },
       create: vi.fn(() => ({})),
     };
 
@@ -1005,7 +1069,12 @@ describe("External plugin manifest validation", () => {
     const registry = createPluginRegistry();
 
     const mockPlugin = {
-      manifest: { name: "jira-cloud", slot: "tracker" as const, version: "1.0.0", description: "Jira Cloud" },
+      manifest: {
+        name: "jira-cloud",
+        slot: "tracker" as const,
+        version: "1.0.0",
+        description: "Jira Cloud",
+      },
       create: vi.fn(() => ({})),
     };
 

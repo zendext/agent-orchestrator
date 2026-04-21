@@ -38,13 +38,21 @@ import { createLifecycleManager } from "../lifecycle-manager.js";
 import { writeMetadata } from "../metadata.js";
 import { getSessionsDir, getProjectBaseDir } from "../paths.js";
 import trackerGithub from "@aoagents/ao-plugin-tracker-github";
+import trackerLocal from "@aoagents/ao-plugin-tracker-local";
 import scmGithub from "@aoagents/ao-plugin-scm-github";
-import { createMockPlugins, makeHandle, makeSession as makeSessionBase, makePR, type TestEnvironment } from "./test-utils.js";
+import {
+  createMockPlugins,
+  makeHandle,
+  makeSession as makeSessionBase,
+  makePR,
+  type TestEnvironment,
+} from "./test-utils.js";
 import type {
   OrchestratorConfig,
   PluginRegistry,
   Runtime,
   Agent,
+  Tracker,
   Workspace,
   SessionManager,
   Session,
@@ -187,6 +195,7 @@ function createTestRegistry(): PluginRegistry {
 
   // Register REAL plugins
   registry.register(trackerGithub);
+  registry.register(trackerLocal);
   registry.register(scmGithub);
 
   return registry;
@@ -257,6 +266,68 @@ describe("plugin integration", () => {
       expect(mockWorkspace.create).toHaveBeenCalledWith(
         expect.objectContaining({ branch: "feat/issue-99" }),
       );
+    });
+
+    it("supports local tracker create/list/update/spawn flow", async () => {
+      const registry = createTestRegistry();
+      const sm = createSessionManager({ config, registry });
+      const localProject = {
+        ...project,
+        repo: undefined,
+        tracker: { plugin: "local", idPrefix: "TASK", issuesPath: ".ao/issues" },
+        scm: undefined,
+      };
+      config.projects["my-app"] = localProject;
+
+      const tracker = registry.get<Tracker>("tracker", "local");
+      expect(tracker).not.toBeNull();
+
+      const created = await tracker!.createIssue!(
+        {
+          title: "Local issue flow",
+          description: "Track work locally with YAML and Markdown.",
+          labels: ["agent:backlog", "bug"],
+          assignee: "alice",
+        },
+        localProject,
+      );
+
+      expect(created.id).toBe("TASK-1");
+      expect(created.url).toBe("local-issue://TASK-1");
+
+      const backlogIssues = await tracker!.listIssues!(
+        { state: "open", labels: ["agent:backlog"], limit: 10 },
+        localProject,
+      );
+      expect(backlogIssues.map((issue) => issue.id)).toEqual(["TASK-1"]);
+
+      const session = await sm.spawn({
+        projectId: "my-app",
+        issueId: created.id,
+      });
+      expect(session.branch).toBe("feat/TASK-1");
+      expect(session.issueId).toBe("TASK-1");
+
+      await tracker!.updateIssue!(
+        created.id,
+        {
+          labels: ["merged-unverified"],
+          removeLabels: ["agent:backlog"],
+          comment: "PR merged. Issue awaiting human verification on staging.",
+        },
+        localProject,
+      );
+
+      const verifyIssues = await tracker!.listIssues!(
+        { state: "open", labels: ["merged-unverified"], limit: 10 },
+        localProject,
+      );
+      expect(verifyIssues.map((issue) => issue.id)).toEqual(["TASK-1"]);
+
+      const updated = await tracker!.getIssue(created.id, localProject);
+      expect(updated.labels).toContain("merged-unverified");
+      expect(updated.labels).not.toContain("agent:backlog");
+      expect(updated.description).toBe("Track work locally with YAML and Markdown.");
     });
 
     it("spawn() falls back to generic branch when no tracker configured", async () => {
