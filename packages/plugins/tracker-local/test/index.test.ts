@@ -1,0 +1,254 @@
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { parse as parseYaml } from "yaml";
+import type { ProjectConfig } from "@aoagents/ao-core";
+import { create, manifest } from "../src/index.js";
+
+function makeProject(
+  path: string,
+  tracker: ProjectConfig["tracker"] = { plugin: "local" },
+): ProjectConfig {
+  return {
+    name: "test-project",
+    path,
+    repo: "acme/test-project",
+    defaultBranch: "main",
+    sessionPrefix: "test",
+    tracker,
+  };
+}
+
+describe("tracker-local plugin", () => {
+  let tempDir: string;
+  let tracker: ReturnType<typeof create>;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), "ao-tracker-local-"));
+    tracker = create();
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("exposes the expected manifest", () => {
+    expect(manifest).toEqual(
+      expect.objectContaining({
+        name: "local",
+        slot: "tracker",
+        version: "0.1.0",
+      }),
+    );
+  });
+
+  it("createIssue writes YAML metadata and Markdown body", async () => {
+    const project = makeProject(tempDir);
+
+    const issue = await tracker.createIssue!(
+      {
+        title: "Fix login bug",
+        description: "Main issue description here.",
+        labels: ["bug"],
+        assignee: "alice",
+        priority: 2,
+      },
+      project,
+    );
+
+    expect(issue).toEqual({
+      id: "TASK-1",
+      title: "Fix login bug",
+      description: "Main issue description here.",
+      url: "local-issue://TASK-1",
+      state: "open",
+      labels: ["bug"],
+      assignee: "alice",
+      priority: 2,
+      branchName: "feat/TASK-1",
+    });
+
+    const yamlPath = join(tempDir, ".ao/issues/TASK-1.yaml");
+    const markdownPath = join(tempDir, ".ao/issues/TASK-1.md");
+    expect(readFileSync(markdownPath, "utf-8")).toBe(
+      "# Fix login bug\n\nMain issue description here.\n",
+    );
+
+    const metadata = parseYaml(readFileSync(yamlPath, "utf-8")) as Record<string, unknown>;
+    expect(metadata).toEqual(
+      expect.objectContaining({
+        id: "TASK-1",
+        title: "Fix login bug",
+        state: "open",
+        labels: ["bug"],
+        assignee: "alice",
+        priority: 2,
+        branchName: "feat/TASK-1",
+        docPath: ".ao/issues/TASK-1.md",
+      }),
+    );
+  });
+
+  it("getIssue reconstructs description from Markdown without History", async () => {
+    const project = makeProject(tempDir);
+    await tracker.createIssue!(
+      {
+        title: "Fix login bug",
+        description: "Main issue description here.",
+      },
+      project,
+    );
+
+    await tracker.updateIssue!(
+      "TASK-1",
+      { comment: "Claimed by agent orchestrator — session spawned." },
+      project,
+    );
+
+    const issue = await tracker.getIssue("TASK-1", project);
+    expect(issue.description).toBe("Main issue description here.");
+    expect(issue.title).toBe("Fix login bug");
+    expect(issue.url).toBe("local-issue://TASK-1");
+  });
+
+  it("updateIssue updates metadata fields additively", async () => {
+    const project = makeProject(tempDir);
+    await tracker.createIssue!(
+      {
+        title: "Fix login bug",
+        description: "Main issue description here.",
+        labels: ["bug"],
+      },
+      project,
+    );
+
+    await tracker.updateIssue!(
+      "TASK-1",
+      {
+        state: "in_progress",
+        labels: ["agent:in-progress"],
+        removeLabels: ["bug"],
+        assignee: "bob",
+      },
+      project,
+    );
+
+    const issue = await tracker.getIssue("TASK-1", project);
+    expect(issue.state).toBe("in_progress");
+    expect(issue.labels).toEqual(["agent:in-progress"]);
+    expect(issue.assignee).toBe("bob");
+  });
+
+  it("updateIssue.comment appends entries into Markdown history", async () => {
+    const project = makeProject(tempDir);
+    await tracker.createIssue!(
+      {
+        title: "Fix login bug",
+        description: "Main issue description here.",
+      },
+      project,
+    );
+
+    await tracker.updateIssue!(
+      "TASK-1",
+      { comment: "Claimed by agent orchestrator — session spawned." },
+      project,
+    );
+    await tracker.updateIssue!(
+      "TASK-1",
+      { comment: "PR merged. Issue awaiting human verification on staging." },
+      project,
+    );
+
+    const markdown = readFileSync(join(tempDir, ".ao/issues/TASK-1.md"), "utf-8");
+    expect(markdown).toContain("## History");
+    expect(markdown).toContain("Claimed by agent orchestrator — session spawned.");
+    expect(markdown).toContain("PR merged. Issue awaiting human verification on staging.");
+  });
+
+  it("listIssues filters by state, assignee, labels, and sorts by updatedAt desc", async () => {
+    const project = makeProject(tempDir);
+    await tracker.createIssue!(
+      {
+        title: "Older bug",
+        description: "one",
+        labels: ["bug", "urgent"],
+        assignee: "alice",
+      },
+      project,
+    );
+    await tracker.createIssue!(
+      {
+        title: "Newer bug",
+        description: "two",
+        labels: ["bug"],
+        assignee: "bob",
+      },
+      project,
+    );
+
+    await tracker.updateIssue!("TASK-1", { state: "closed" }, project);
+    await tracker.updateIssue!("TASK-2", { state: "in_progress" }, project);
+
+    const openIssues = await tracker.listIssues!({ state: "open" }, project);
+    expect(openIssues.map((issue) => issue.id)).toEqual(["TASK-2"]);
+
+    const closedIssues = await tracker.listIssues!({ state: "closed" }, project);
+    expect(closedIssues.map((issue) => issue.id)).toEqual(["TASK-1"]);
+
+    const labeledIssues = await tracker.listIssues!(
+      { state: "all", labels: ["bug", "urgent"], assignee: "alice" },
+      project,
+    );
+    expect(labeledIssues.map((issue) => issue.id)).toEqual(["TASK-1"]);
+  });
+
+  it("uses idPrefix and issuesPath from tracker config", async () => {
+    const project = makeProject(tempDir, {
+      plugin: "local",
+      idPrefix: "BUG",
+      issuesPath: ".tracker/issues",
+    });
+
+    const issue = await tracker.createIssue!(
+      {
+        title: "Fix login bug",
+        description: "Main issue description here.",
+      },
+      project,
+    );
+
+    expect(issue.id).toBe("BUG-1");
+    expect(readFileSync(join(tempDir, ".tracker/issues/BUG-1.md"), "utf-8")).toContain(
+      "Fix login bug",
+    );
+    expect(tracker.branchName("BUG-1", project)).toBe("feat/BUG-1");
+  });
+
+  it("uses explicit branchName from metadata when present", async () => {
+    const project = makeProject(tempDir);
+    await tracker.createIssue!(
+      {
+        title: "Fix login bug",
+        description: "Main issue description here.",
+      },
+      project,
+    );
+
+    await tracker.updateIssue!("TASK-1", { state: "in_progress" }, project);
+
+    const yamlPath = join(tempDir, ".ao/issues/TASK-1.yaml");
+    const metadata = parseYaml(readFileSync(yamlPath, "utf-8")) as Record<string, unknown>;
+    metadata["branchName"] = "custom/TASK-1";
+    writeFileSync(yamlPath, JSON.stringify(metadata), "utf-8");
+
+    expect(tracker.branchName("TASK-1", project)).toBe("custom/TASK-1");
+  });
+
+  it("extracts local issue labels from ids and pseudo URLs", () => {
+    const project = makeProject(tempDir);
+    expect(tracker.issueLabel!("TASK-1", project)).toBe("TASK-1");
+    expect(tracker.issueLabel!("local-issue://TASK-1", project)).toBe("TASK-1");
+  });
+});
