@@ -86,7 +86,10 @@ projects:
 
     # ── Issue tracker (optional) ──────────────────────────────────
     tracker:
-      plugin: github          # github | linear | gitlab
+      plugin: github          # github | local | linear | gitlab
+      # Local-specific:
+      # issuesPath: .ao/issues
+      # idPrefix: TASK
       # Linear-specific:
       # teamId: TEAM-123
       # projectId: PROJECT-456
@@ -138,7 +141,7 @@ notificationRouting:
 # Runtime:   tmux, process
 # Workspace: worktree, clone
 # SCM:       github, gitlab
-# Tracker:   github, linear, gitlab
+# Tracker:   github, local, linear, gitlab
 # Notifier:  desktop, discord, slack, webhook, composio, openclaw
 # Terminal:  iterm2, web
 `.trim();
