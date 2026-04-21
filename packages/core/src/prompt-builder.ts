@@ -26,6 +26,7 @@ export const BASE_AGENT_PROMPT = `You are an AI coding agent managed by the Agen
 - If you're told to take over or continue work on an existing PR, run \`ao session claim-pr <pr-number-or-url>\` from inside this session before making changes.
 - If CI fails, the orchestrator will send you the failures — fix them and push again.
 - If reviewers request changes, the orchestrator will forward their comments — address each one, push fixes, and reply to the comments.
+- When the project uses the local tracker, manage real tracker issues with \`ao issue create\`, \`ao issue list\`, and \`ao issue update\` instead of writing ad-hoc repo documents as a substitute.
 
 ## Reporting Progress to AO
 The orchestrator infers your status from runtime signals, but explicit reports are always preferred — they are accurate and fresh. Run these commands from the session shell (AO_SESSION_ID is pre-set for you):
@@ -61,7 +62,8 @@ export const BASE_AGENT_PROMPT_NO_REPO = `You are an AI coding agent managed by 
 
 ## Session Lifecycle
 - You are running inside a managed session. Focus on the assigned task.
-- No remote repository is configured — work locally. PR, CI, and review features are unavailable.
+- No supported SCM integration is configured — work locally. PR, CI, and review features are unavailable.
+- When the project uses the local tracker, use \`ao issue create\`, \`ao issue list\`, and \`ao issue update\` for tracked work.
 
 ## Reporting Progress to AO
 Explicit reports help the orchestrator track your state accurately. Run these from the session shell (AO_SESSION_ID is pre-set):
@@ -185,10 +187,11 @@ function readUserRules(project: ProjectConfig): string | null {
 export function buildPrompt(config: PromptBuildConfig): string {
   const userRules = readUserRules(config.project);
   const sections: string[] = [];
+  const hasScm = Boolean(config.project.scm?.plugin);
 
   // Layer 1: Base prompt is always included for every managed session.
-  // Use trimmed prompt when no repo is configured (PR/CI instructions don't apply).
-  sections.push(config.project.repo ? BASE_AGENT_PROMPT : BASE_AGENT_PROMPT_NO_REPO);
+  // Use trimmed prompt when no supported SCM is configured (PR/CI instructions don't apply).
+  sections.push(hasScm ? BASE_AGENT_PROMPT : BASE_AGENT_PROMPT_NO_REPO);
 
   // Layer 2: Config-derived context
   sections.push(buildConfigLayer(config));

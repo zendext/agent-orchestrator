@@ -11,6 +11,7 @@ import {
   type Tracker,
   loadConfig,
 } from "@aoagents/ao-core";
+import { getSessionManager } from "../lib/create-session-manager.js";
 import { importPluginModuleFromSource } from "../lib/plugin-store.js";
 import { findProjectForDirectory } from "../lib/project-resolution.js";
 
@@ -90,6 +91,24 @@ function readDescription(opts: { description?: string; descriptionFile?: string 
   return opts.description ?? "";
 }
 
+function parseState(value?: string): "open" | "in_progress" | "closed" | "all" {
+  const state = value ?? "open";
+  if (state !== "open" && state !== "in_progress" && state !== "closed" && state !== "all") {
+    console.error(chalk.red("State must be one of: open, in_progress, closed, all."));
+    process.exit(1);
+  }
+  return state;
+}
+
+function parseOptionalNumber(value?: number): number | undefined {
+  if (value === undefined) return undefined;
+  if (!Number.isFinite(value)) {
+    console.error(chalk.red("Priority must be a finite number."));
+    process.exit(1);
+  }
+  return value;
+}
+
 function renderIssueList(issues: Issue[], projectName: string, state: "open" | "closed" | "all"): void {
   if (!issues || issues.length === 0) {
     console.log(chalk.dim(`No ${state} issues found in ${projectName}.`));
@@ -157,33 +176,117 @@ export function registerIssue(program: Command): void {
         }
 
         const description = readDescription(opts);
-        const issue = await tracker.createIssue(
+        const createdIssue = await tracker.createIssue(
           {
             title,
             description,
             labels,
             assignee: opts.assignee,
-            priority: opts.priority,
+            priority: parseOptionalNumber(opts.priority),
           },
           project,
         );
 
         if (opts.json) {
-          console.log(JSON.stringify({ projectId, issue }, null, 2));
+          console.log(JSON.stringify({ projectId, issue: createdIssue }, null, 2));
           return;
         }
 
         console.log(
-          chalk.green(`Created issue ${issue.id} in ${project.name || projectId}: ${issue.title}`),
+          chalk.green(
+            `Created issue ${createdIssue.id} in ${project.name || projectId}: ${createdIssue.title}`,
+          ),
         );
-        console.log(`  URL:    ${chalk.dim(issue.url)}`);
-        if (issue.branchName) {
-          console.log(`  Branch: ${chalk.cyan(issue.branchName)}`);
+        console.log(`  URL:    ${chalk.dim(createdIssue.url)}`);
+        if (createdIssue.branchName) {
+          console.log(`  Branch: ${chalk.cyan(createdIssue.branchName)}`);
         }
-        if (issue.labels.length > 0) {
-          console.log(`  Labels: ${chalk.dim(issue.labels.join(", "))}`);
+        if (createdIssue.labels.length > 0) {
+          console.log(`  Labels: ${chalk.dim(createdIssue.labels.join(", "))}`);
         }
-        console.log(`ISSUE=${issue.id}`);
+        console.log(`ISSUE=${createdIssue.id}`);
+      },
+    );
+
+  issue
+    .command("create-and-spawn")
+    .description("Create a tracker issue and immediately spawn a worker for it")
+    .argument("<title>", "Issue title")
+    .option("-p, --project <id>", "Project ID (required if multiple projects)")
+    .option("-d, --description <text>", "Issue description/body")
+    .option("--description-file <path>", "Read issue description/body from a file")
+    .option("-l, --label <name>", "Add a label", (value, list: string[]) => [...list, value], [])
+    .option("--assignee <name>", "Assign the issue to a user")
+    .option("--priority <n>", "Numeric priority", (value) => Number.parseInt(value, 10))
+    .option("--agent <name>", "Override the agent plugin for the spawned worker")
+    .option("--json", "Output created issue and session as JSON")
+    .action(
+      async (
+        title: string,
+        opts: {
+          project?: string;
+          description?: string;
+          descriptionFile?: string;
+          label: string[];
+          assignee?: string;
+          priority?: number;
+          agent?: string;
+          json?: boolean;
+        },
+      ) => {
+        let config: OrchestratorConfig;
+        try {
+          config = loadConfig();
+        } catch {
+          console.error(chalk.red("No config found. Run `ao start` first."));
+          process.exit(1);
+          return;
+        }
+
+        const { projectId, project } = resolveProject(config, opts.project);
+        const { tracker } = await getTracker(config, project);
+
+        if (!tracker.createIssue) {
+          console.error(chalk.red("Tracker does not support issue creation."));
+          process.exit(1);
+        }
+
+        const description = readDescription(opts);
+        const createdIssue = await tracker.createIssue(
+          {
+            title,
+            description,
+            labels: opts.label,
+            assignee: opts.assignee,
+            priority: parseOptionalNumber(opts.priority),
+          },
+          project,
+        );
+
+        const sessionManager = await getSessionManager(config);
+        const session = await sessionManager.spawn({
+          projectId,
+          issueId: createdIssue.id,
+          agent: opts.agent,
+        });
+
+        if (opts.json) {
+          console.log(JSON.stringify({ projectId, issue: createdIssue, session }, null, 2));
+          return;
+        }
+
+        console.log(
+          chalk.green(
+            `Created issue ${createdIssue.id} and spawned session ${session.id} in ${project.name || projectId}.`,
+          ),
+        );
+        console.log(`  Issue:   ${chalk.dim(createdIssue.url)}`);
+        console.log(`  Session: ${chalk.cyan(session.id)}`);
+        if (createdIssue.branchName) {
+          console.log(`  Branch:  ${chalk.cyan(createdIssue.branchName)}`);
+        }
+        console.log(`ISSUE=${createdIssue.id}`);
+        console.log(`SESSION=${session.id}`);
       },
     );
 
@@ -212,9 +315,9 @@ export function registerIssue(program: Command): void {
           return;
         }
 
-        const state = opts.state ?? "open";
-        if (!["open", "closed", "all"].includes(state)) {
-          console.error(chalk.red("State must be one of: open, closed, all."));
+        const state = parseState(opts.state);
+        if (state === "in_progress") {
+          console.error(chalk.red("issue list only supports state: open, closed, all."));
           process.exit(1);
         }
 
@@ -241,6 +344,98 @@ export function registerIssue(program: Command): void {
         }
 
         renderIssueList(issues, project.name || projectId, state);
+      },
+    );
+
+  issue
+    .command("update")
+    .description("Update a tracker issue in the current project")
+    .argument("<issueId>", "Issue identifier")
+    .option("-p, --project <id>", "Project ID (required if multiple projects)")
+    .option("-s, --state <state>", "Set state: open|in_progress|closed")
+    .option("-l, --label <name>", "Add a label", (value, list: string[]) => [...list, value], [])
+    .option("--remove-label <name>", "Remove a label", (value, list: string[]) => [...list, value], [])
+    .option("-c, --comment <text>", "Append a comment/update note")
+    .option("--assignee <name>", "Assign the issue to a user")
+    .option("--json", "Output updated issue as JSON")
+    .action(
+      async (
+        issueId: string,
+        opts: {
+          project?: string;
+          state?: "open" | "in_progress" | "closed";
+          label: string[];
+          removeLabel: string[];
+          comment?: string;
+          assignee?: string;
+          json?: boolean;
+        },
+      ) => {
+        let config: OrchestratorConfig;
+        try {
+          config = loadConfig();
+        } catch {
+          console.error(chalk.red("No config found. Run `ao start` first."));
+          process.exit(1);
+          return;
+        }
+
+        const { projectId, project } = resolveProject(config, opts.project);
+        const { tracker } = await getTracker(config, project);
+
+        if (!tracker.updateIssue) {
+          console.error(chalk.red("Tracker does not support issue updates."));
+          process.exit(1);
+        }
+
+        const state = opts.state ? parseState(opts.state) : undefined;
+        if (state === "all") {
+          console.error(chalk.red("issue update does not support state: all."));
+          process.exit(1);
+        }
+
+        if (
+          state === undefined &&
+          opts.label.length === 0 &&
+          opts.removeLabel.length === 0 &&
+          !opts.comment &&
+          !opts.assignee
+        ) {
+          console.error(
+            chalk.red(
+              "No update requested. Provide at least one of --state, --label, --remove-label, --comment, or --assignee.",
+            ),
+          );
+          process.exit(1);
+        }
+
+        await tracker.updateIssue(
+          issueId,
+          {
+            state,
+            labels: opts.label.length > 0 ? opts.label : undefined,
+            removeLabels: opts.removeLabel.length > 0 ? opts.removeLabel : undefined,
+            comment: opts.comment,
+            assignee: opts.assignee,
+          },
+          project,
+        );
+
+        const updatedIssue = tracker.getIssue ? await tracker.getIssue(issueId, project) : null;
+
+        if (opts.json) {
+          console.log(JSON.stringify({ projectId, issue: updatedIssue }, null, 2));
+          return;
+        }
+
+        console.log(chalk.green(`Updated issue ${issueId} in ${project.name || projectId}.`));
+        if (updatedIssue) {
+          console.log(`  URL:    ${chalk.dim(updatedIssue.url)}`);
+          console.log(`  State:  ${updatedIssue.state}`);
+          if (updatedIssue.labels.length > 0) {
+            console.log(`  Labels: ${chalk.dim(updatedIssue.labels.join(", "))}`);
+          }
+        }
       },
     );
 }

@@ -19,6 +19,7 @@ beforeEach(() => {
     path: tmpDir,
     defaultBranch: "main",
     sessionPrefix: "test",
+    scm: { plugin: "github" },
   };
 });
 
@@ -56,13 +57,21 @@ describe("buildPrompt", () => {
   });
 
   it("uses trimmed base prompt when repo is not configured", () => {
-    const noRepoProject = { ...project, repo: undefined };
+    const noRepoProject = { ...project, repo: undefined, scm: undefined };
     const result = buildPrompt({ project: noRepoProject, projectId: "test-app" });
     expect(result).toContain(BASE_AGENT_PROMPT_NO_REPO);
     expect(result).not.toContain(BASE_AGENT_PROMPT);
     expect(result).not.toContain("create a PR");
     expect(result).not.toContain("PR Best Practices");
     expect(result).not.toContain("Repository:");
+  });
+
+  it("uses trimmed base prompt when repo exists but scm is not configured", () => {
+    const result = buildPrompt({ project: { ...project, scm: undefined }, projectId: "test-app" });
+    expect(result).toContain(BASE_AGENT_PROMPT_NO_REPO);
+    expect(result).not.toContain(BASE_AGENT_PROMPT);
+    expect(result).not.toContain("create a PR");
+    expect(result).toContain("Repository: org/test-app");
   });
 
   it("includes issue ID in task section", () => {
@@ -188,6 +197,17 @@ describe("buildPrompt", () => {
       issueId: "INT-100",
     });
     expect(result).toContain("Tracker: linear");
+  });
+
+  it("uses full PR prompt when scm is configured", () => {
+    project.scm = { plugin: "github" };
+    const result = buildPrompt({
+      project,
+      projectId: "test-app",
+    });
+    expect(result).toContain(BASE_AGENT_PROMPT);
+    expect(result).not.toContain(BASE_AGENT_PROMPT_NO_REPO);
+    expect(result).toContain("create a PR");
   });
 
   it("uses project name in context", () => {

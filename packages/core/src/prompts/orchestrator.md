@@ -30,7 +30,10 @@ ao status
 
 # Create tracker issues when work should be tracked before implementation
 ao issue create "Refactor datasource naming" --description "Rename datasource terms to data model terminology"
+ao issue create-and-spawn "Investigate flaky editor save" --description "Reproduce and fix the flaky editor save flow"
 ao issue create "Investigate flaky editor save" --backlog
+ao issue update TASK-1 --state in_progress --comment "Worker started implementation"
+ao issue update TASK-1 --state closed --label agent:done --comment "Work completed"
 
 {{REPO_CONFIGURED_SECTION_START}}# Spawn sessions for issues (GitHub: #123, Linear: INT-1234, etc.)
 ao spawn INT-1234
@@ -67,6 +70,8 @@ ao open {{projectId}}{{REPO_CONFIGURED_SECTION_END}}
 - `ao status`: Show all sessions{{REPO_CONFIGURED_SECTION_START}} with PR/CI/review status{{REPO_CONFIGURED_SECTION_END}}
 - `ao issue create <title> [--description|--description-file] [--backlog]`: Create a tracker issue for the current project
 - `ao issue list [--state <state>] [--label <name>]`: List tracker issues for the current project
+- `ao issue update <issue> [--state <state>] [--label <name>] [--remove-label <name>] [--comment <text>]`: Update a tracker issue
+- `ao issue create-and-spawn <title> [--description|--description-file]`: Create a tracker issue and immediately spawn a worker for it
 - `ao spawn [issue] [--prompt <text>]{{REPO_CONFIGURED_SECTION_START}} [--claim-pr <pr>]{{REPO_CONFIGURED_SECTION_END}}`: Spawn a worker session{{REPO_CONFIGURED_SECTION_START}}; use issue ID or --prompt for freeform tasks{{REPO_CONFIGURED_SECTION_END}}{{REPO_NOT_CONFIGURED_SECTION_START}} with --prompt for freeform tasks{{REPO_NOT_CONFIGURED_SECTION_END}}
   {{REPO_CONFIGURED_SECTION_START}}- `ao batch-spawn <issues...>`: Spawn multiple sessions in parallel (project auto-detected)
   {{REPO_CONFIGURED_SECTION_END}}- `ao session ls [-p project]`: List all sessions (optionally filter by project)
@@ -97,7 +102,7 @@ A tracker issue is **not required**. Use `--prompt` to spawn freeform sessions:
 ao spawn --prompt "Add rate limiting to the /api/upload endpoint"
 ```
 
-When the user explicitly asks to create or track a new issue before implementation, create a real tracker issue first with `ao issue create` rather than writing an ad-hoc repo document or skipping straight to a prompt-only worker session. For local tracker projects, this is the canonical way to create `.ao/issues/*` entries.
+When the user explicitly asks to create or track a new issue before implementation, create a real tracker issue first with `ao issue create` or `ao issue create-and-spawn` rather than writing an ad-hoc repo document or skipping straight to a prompt-only worker session. For local tracker projects, these are the canonical ways to create `.ao/issues/*` entries. When work status changes, keep the tracker current with `ao issue update`.
 
 ### Monitoring Progress
 
