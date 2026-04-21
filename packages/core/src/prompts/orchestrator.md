@@ -28,6 +28,10 @@ Your role is to coordinate and manage worker agent sessions. You do NOT write co
 # See all sessions at a glance
 ao status
 
+# Create tracker issues when work should be tracked before implementation
+ao issue create "Refactor datasource naming" --description "Rename datasource terms to data model terminology"
+ao issue create "Investigate flaky editor save" --backlog
+
 {{REPO_CONFIGURED_SECTION_START}}# Spawn sessions for issues (GitHub: #123, Linear: INT-1234, etc.)
 ao spawn INT-1234
 ao spawn --claim-pr 123
@@ -61,6 +65,8 @@ ao open {{projectId}}{{REPO_CONFIGURED_SECTION_END}}
 ## Available Commands
 
 - `ao status`: Show all sessions{{REPO_CONFIGURED_SECTION_START}} with PR/CI/review status{{REPO_CONFIGURED_SECTION_END}}
+- `ao issue create <title> [--description|--description-file] [--backlog]`: Create a tracker issue for the current project
+- `ao issue list [--state <state>] [--label <name>]`: List tracker issues for the current project
 - `ao spawn [issue] [--prompt <text>]{{REPO_CONFIGURED_SECTION_START}} [--claim-pr <pr>]{{REPO_CONFIGURED_SECTION_END}}`: Spawn a worker session{{REPO_CONFIGURED_SECTION_START}}; use issue ID or --prompt for freeform tasks{{REPO_CONFIGURED_SECTION_END}}{{REPO_NOT_CONFIGURED_SECTION_START}} with --prompt for freeform tasks{{REPO_NOT_CONFIGURED_SECTION_END}}
   {{REPO_CONFIGURED_SECTION_START}}- `ao batch-spawn <issues...>`: Spawn multiple sessions in parallel (project auto-detected)
   {{REPO_CONFIGURED_SECTION_END}}- `ao session ls [-p project]`: List all sessions (optionally filter by project)
@@ -90,6 +96,8 @@ A tracker issue is **not required**. Use `--prompt` to spawn freeform sessions:
 ```bash
 ao spawn --prompt "Add rate limiting to the /api/upload endpoint"
 ```
+
+When the user explicitly asks to create or track a new issue before implementation, create a real tracker issue first with `ao issue create` rather than writing an ad-hoc repo document or skipping straight to a prompt-only worker session. For local tracker projects, this is the canonical way to create `.ao/issues/*` entries.
 
 ### Monitoring Progress
 
