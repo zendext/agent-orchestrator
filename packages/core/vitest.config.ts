@@ -28,6 +28,10 @@ export default defineConfig({
         __dirname,
         "../plugins/tracker-github/src/index.ts",
       ),
+      "@aoagents/ao-plugin-tracker-local": resolve(
+        __dirname,
+        "../plugins/tracker-local/src/index.ts",
+      ),
       "@aoagents/ao-plugin-scm-github": resolve(__dirname, "../plugins/scm-github/src/index.ts"),
     },
     coverage: {

@@ -8,10 +8,12 @@ const {
   tmuxPlugin,
   claudePlugin,
   codexPlugin,
+  cursorPlugin,
   opencodePlugin,
   worktreePlugin,
   scmPlugin,
   trackerGithubPlugin,
+  trackerLocalPlugin,
   trackerLinearPlugin,
 } = vi.hoisted(() => {
   const mockLoadConfig = vi.fn();
@@ -33,10 +35,12 @@ const {
     tmuxPlugin: { manifest: { name: "tmux" } },
     claudePlugin: { manifest: { name: "claude-code" } },
     codexPlugin: { manifest: { name: "codex" } },
+    cursorPlugin: { manifest: { name: "cursor" } },
     opencodePlugin: { manifest: { name: "opencode" } },
     worktreePlugin: { manifest: { name: "worktree" } },
     scmPlugin: { manifest: { name: "github" } },
     trackerGithubPlugin: { manifest: { name: "github" } },
+    trackerLocalPlugin: { manifest: { name: "local" } },
     trackerLinearPlugin: { manifest: { name: "linear" } },
   };
 });
@@ -57,10 +61,12 @@ vi.mock("@aoagents/ao-core", () => ({
 vi.mock("@aoagents/ao-plugin-runtime-tmux", () => ({ default: tmuxPlugin }));
 vi.mock("@aoagents/ao-plugin-agent-claude-code", () => ({ default: claudePlugin }));
 vi.mock("@aoagents/ao-plugin-agent-codex", () => ({ default: codexPlugin }));
+vi.mock("@aoagents/ao-plugin-agent-cursor", () => ({ default: cursorPlugin }));
 vi.mock("@aoagents/ao-plugin-agent-opencode", () => ({ default: opencodePlugin }));
 vi.mock("@aoagents/ao-plugin-workspace-worktree", () => ({ default: worktreePlugin }));
 vi.mock("@aoagents/ao-plugin-scm-github", () => ({ default: scmPlugin }));
 vi.mock("@aoagents/ao-plugin-tracker-github", () => ({ default: trackerGithubPlugin }));
+vi.mock("@aoagents/ao-plugin-tracker-local", () => ({ default: trackerLocalPlugin }));
 vi.mock("@aoagents/ao-plugin-tracker-linear", () => ({ default: trackerLinearPlugin }));
 
 describe("services", () => {
@@ -103,6 +109,14 @@ describe("services", () => {
     await getServices();
 
     expect(mockRegister).toHaveBeenCalledWith(codexPlugin);
+  });
+
+  it("registers the local tracker plugin with web services", async () => {
+    const { getServices } = await import("../lib/services");
+
+    await getServices();
+
+    expect(mockRegister).toHaveBeenCalledWith(trackerLocalPlugin);
   });
 
   it("caches initialized services across repeated calls", async () => {
