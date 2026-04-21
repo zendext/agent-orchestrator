@@ -23,7 +23,7 @@ Spawn parallel AI coding agents, each in its own git worktree. Agents autonomous
 
 Agent Orchestrator manages fleets of AI coding agents working in parallel on your codebase. Each agent gets its own git worktree, its own branch, and its own PR. When CI fails, the agent fixes it. When reviewers leave comments, the agent addresses them. You only get pulled in when human judgment is needed.
 
-**Agent-agnostic** (Claude Code, Codex, Aider) · **Runtime-agnostic** (tmux, Docker) · **Tracker-agnostic** (GitHub, Linear)
+**Agent-agnostic** (Claude Code, Codex, Aider) · **Runtime-agnostic** (tmux, Docker) · **Tracker-agnostic** (GitHub, Linear, Local)
 
 <div align="center">
 
@@ -64,6 +64,7 @@ To install from source (for contributors):
 git clone https://github.com/ComposioHQ/agent-orchestrator.git
 cd agent-orchestrator && bash scripts/setup.sh
 ```
+
 </details>
 
 ### Start
@@ -119,6 +120,10 @@ projects:
     path: ~/my-app
     defaultBranch: main
     sessionPrefix: app
+    tracker:
+      plugin: local
+      issuesPath: .ao/issues
+      idPrefix: TASK
 
 reactions:
   ci-failed:
@@ -136,6 +141,8 @@ reactions:
 
 CI fails → agent gets the logs and fixes it. Reviewer requests changes → agent addresses them. PR approved with green CI → you get a notification to merge.
 
+With `tracker: { plugin: local }`, AO stores each issue as `.ao/issues/<ID>.yaml` plus `.ao/issues/<ID>.md`, uses pseudo URLs like `local-issue://TASK-1`, and appends `updateIssue.comment` entries into a reserved Markdown `## History` section. v1 intentionally does not add file locking, a rich comment timeline, or a dedicated issue-body UI.
+
 See [`agent-orchestrator.yaml.example`](agent-orchestrator.yaml.example) for the full reference, or run `ao config-help` for the complete schema.
 
 ## Remote Access
@@ -147,7 +154,7 @@ AO keeps your Mac awake while running, so you can access the dashboard remotely 
 ```yaml
 # agent-orchestrator.yaml
 power:
-  preventIdleSleep: true  # Default on macOS, no-op on Linux
+  preventIdleSleep: true # Default on macOS, no-op on Linux
 ```
 
 Set to `false` if you want to allow idle sleep while AO runs.
@@ -158,15 +165,15 @@ Set to `false` if you want to allow idle sleep while AO runs.
 
 Seven plugin slots. Lifecycle stays in core.
 
-| Slot      | Default     | Alternatives             |
-| --------- | ----------- | ------------------------ |
-| Runtime   | tmux        | process                  |
-| Agent     | claude-code | codex, aider, cursor, opencode   |
-| Workspace | worktree    | clone                    |
-| Tracker   | github      | linear, gitlab           |
-| SCM       | github      | gitlab                   |
+| Slot      | Default     | Alternatives                                |
+| --------- | ----------- | ------------------------------------------- |
+| Runtime   | tmux        | process                                     |
+| Agent     | claude-code | codex, aider, cursor, opencode              |
+| Workspace | worktree    | clone                                       |
+| Tracker   | github      | local, linear, gitlab                       |
+| SCM       | github      | gitlab                                      |
 | Notifier  | desktop     | slack, discord, composio, webhook, openclaw |
-| Terminal  | iterm2      | web                      |
+| Terminal  | iterm2      | web                                         |
 
 All interfaces defined in [`packages/core/src/types.ts`](packages/core/src/types.ts). A plugin implements one interface and exports a `PluginModule`. That's it.
 
