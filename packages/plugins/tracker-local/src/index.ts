@@ -11,8 +11,9 @@ import type {
   Tracker,
   TrackerConfig,
 } from "@aoagents/ao-core";
+import { getProjectBaseDir } from "@aoagents/ao-core";
 
-const DEFAULT_ISSUES_PATH = ".ao/issues";
+const DEFAULT_MIRROR_PATH = ".ao/issues";
 const DEFAULT_ID_PREFIX = "TASK";
 const LOCAL_ISSUE_SCHEME = "local-issue://";
 const HISTORY_SECTION_HEADING = "## History";
@@ -34,7 +35,8 @@ interface LocalIssueMetadata {
 }
 
 interface LocalTrackerProjectConfig {
-  issuesPath: string;
+  internalIssuesPath: string;
+  mirrorIssuesPath?: string;
   idPrefix: string;
 }
 
@@ -114,19 +116,31 @@ function normalizeIdPrefix(trackerConfig?: TrackerConfig): string {
   return trimmedPrefix;
 }
 
-function resolveIssuesDir(project: ProjectConfig): string {
+function resolveInternalIssuesDir(project: ProjectConfig, runtimeConfig?: LocalTrackerRuntimeConfig): string {
+  if (runtimeConfig?.configPath) {
+    return join(getProjectBaseDir(runtimeConfig.configPath, project.path), "issues");
+  }
+  // Compatibility fallback for tests or synthesized projects without a known config path.
+  return resolve(project.path, ".ao/internal-issues");
+}
+
+function resolveMirrorIssuesDir(project: ProjectConfig): string | undefined {
   const trackerConfig = project.tracker;
-  const configuredPath = trackerConfig?.["issuesPath"];
+  const configuredPath = trackerConfig?.["mirrorPath"] ?? trackerConfig?.["issuesPath"];
   if (typeof configuredPath === "string" && configuredPath.trim().length > 0) {
     return isAbsolute(configuredPath) ? configuredPath : resolve(project.path, configuredPath);
   }
 
-  return resolve(project.path, DEFAULT_ISSUES_PATH);
+  return resolve(project.path, DEFAULT_MIRROR_PATH);
 }
 
-function getLocalTrackerProjectConfig(project: ProjectConfig): LocalTrackerProjectConfig {
+function getLocalTrackerProjectConfig(
+  project: ProjectConfig,
+  runtimeConfig?: LocalTrackerRuntimeConfig,
+): LocalTrackerProjectConfig {
   return {
-    issuesPath: resolveIssuesDir(project),
+    internalIssuesPath: resolveInternalIssuesDir(project, runtimeConfig),
+    mirrorIssuesPath: resolveMirrorIssuesDir(project),
     idPrefix: normalizeIdPrefix(project.tracker),
   };
 }
@@ -146,10 +160,10 @@ function normalizeIdentifier(identifier: string): string {
   return issuePathIdFromUrl(identifier.trim());
 }
 
-function ensureIssuesDir(project: ProjectConfig): string {
-  const { issuesPath } = getLocalTrackerProjectConfig(project);
-  mkdirSync(issuesPath, { recursive: true });
-  return issuesPath;
+function ensureIssuesDir(project: ProjectConfig, runtimeConfig?: LocalTrackerRuntimeConfig): string {
+  const { internalIssuesPath } = getLocalTrackerProjectConfig(project, runtimeConfig);
+  mkdirSync(internalIssuesPath, { recursive: true });
+  return internalIssuesPath;
 }
 
 function getStoredDocPath(project: ProjectConfig, markdownPath: string): string {
@@ -175,13 +189,28 @@ function resolveDocPath(
   return siblingDoc;
 }
 
-function getIssueFiles(identifier: string, project: ProjectConfig): LocalIssueFiles {
+function getIssueFiles(
+  identifier: string,
+  project: ProjectConfig,
+  runtimeConfig?: LocalTrackerRuntimeConfig,
+): LocalIssueFiles {
   const normalizedId = normalizeIdentifier(identifier);
-  const { issuesPath } = getLocalTrackerProjectConfig(project);
+  const { internalIssuesPath } = getLocalTrackerProjectConfig(project, runtimeConfig);
   return {
-    issuesDir: issuesPath,
-    yamlPath: join(issuesPath, `${normalizedId}.yaml`),
-    markdownPath: join(issuesPath, `${normalizedId}.md`),
+    issuesDir: internalIssuesPath,
+    yamlPath: join(internalIssuesPath, `${normalizedId}.yaml`),
+    markdownPath: join(internalIssuesPath, `${normalizedId}.md`),
+  };
+}
+
+function getMirrorIssueFiles(identifier: string, project: ProjectConfig): LocalIssueFiles | null {
+  const normalizedId = normalizeIdentifier(identifier);
+  const { mirrorIssuesPath } = getLocalTrackerProjectConfig(project);
+  if (!mirrorIssuesPath) return null;
+  return {
+    issuesDir: mirrorIssuesPath,
+    yamlPath: join(mirrorIssuesPath, `${normalizedId}.yaml`),
+    markdownPath: join(mirrorIssuesPath, `${normalizedId}.md`),
   };
 }
 
@@ -283,11 +312,12 @@ function appendHistoryEntry(content: string, comment: string, now: Date): string
 function readIssueMetadata(
   identifier: string,
   project: ProjectConfig,
+  runtimeConfig?: LocalTrackerRuntimeConfig,
 ): {
   metadata: LocalIssueMetadata;
   files: LocalIssueFiles;
 } {
-  const files = getIssueFiles(identifier, project);
+  const files = getIssueFiles(identifier, project, runtimeConfig);
   if (!existsSync(files.yamlPath)) {
     const normalizedId = normalizeIdentifier(identifier);
     throw new Error(`Issue ${normalizedId} not found`);
@@ -327,9 +357,27 @@ function isClosedLikeState(state: LocalIssueState): boolean {
   return state === "closed" || state === "cancelled";
 }
 
-function nextIssueId(project: ProjectConfig): string {
-  const { issuesPath, idPrefix } = getLocalTrackerProjectConfig(project);
-  if (!existsSync(issuesPath)) {
+function syncMirrorIssue(
+  identifier: string,
+  project: ProjectConfig,
+  metadata: LocalIssueMetadata,
+  markdown: string,
+): void {
+  const mirrorFiles = getMirrorIssueFiles(identifier, project);
+  if (!mirrorFiles) return;
+
+  mkdirSync(mirrorFiles.issuesDir, { recursive: true });
+  const mirrorMetadata: LocalIssueMetadata = {
+    ...metadata,
+    docPath: getStoredDocPath(project, mirrorFiles.markdownPath),
+  };
+  writeFileSync(mirrorFiles.yamlPath, serializeMetadata(mirrorMetadata), "utf-8");
+  writeFileSync(mirrorFiles.markdownPath, markdown, "utf-8");
+}
+
+function nextIssueId(project: ProjectConfig, runtimeConfig?: LocalTrackerRuntimeConfig): string {
+  const { internalIssuesPath, idPrefix } = getLocalTrackerProjectConfig(project, runtimeConfig);
+  if (!existsSync(internalIssuesPath)) {
     return `${idPrefix}-1`;
   }
 
@@ -337,7 +385,7 @@ function nextIssueId(project: ProjectConfig): string {
     `^${idPrefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-(\\d+)\\.yaml$`,
     "u",
   );
-  const maxNumber = readdirSync(issuesPath).reduce((max, entry) => {
+  const maxNumber = readdirSync(internalIssuesPath).reduce((max, entry) => {
     const match = entry.match(matcher);
     if (!match?.[1]) return max;
     const value = Number.parseInt(match[1], 10);
@@ -347,19 +395,19 @@ function nextIssueId(project: ProjectConfig): string {
   return `${idPrefix}-${maxNumber + 1}`;
 }
 
-function createLocalTracker(): Tracker {
+function createLocalTracker(runtimeConfig?: LocalTrackerRuntimeConfig): Tracker {
   return {
     name: "local",
 
     async getIssue(identifier: string, project: ProjectConfig): Promise<Issue> {
-      const { metadata, files } = readIssueMetadata(identifier, project);
+      const { metadata, files } = readIssueMetadata(identifier, project, runtimeConfig);
       const markdownPath = resolveDocPath(project, metadata, files.yamlPath);
       const parsedMarkdown = parseMarkdownIssue(readMarkdownContent(markdownPath));
       return toIssue(metadata, parsedMarkdown.description);
     },
 
     async isCompleted(identifier: string, project: ProjectConfig): Promise<boolean> {
-      const { metadata } = readIssueMetadata(identifier, project);
+        const { metadata } = readIssueMetadata(identifier, project, runtimeConfig);
       return isClosedLikeState(metadata.state);
     },
 
@@ -379,7 +427,7 @@ function createLocalTracker(): Tracker {
 
     branchName(identifier: string, project: ProjectConfig): string {
       try {
-        const { metadata } = readIssueMetadata(identifier, project);
+        const { metadata } = readIssueMetadata(identifier, project, runtimeConfig);
         if (metadata.branchName) {
           return metadata.branchName;
         }
@@ -392,15 +440,13 @@ function createLocalTracker(): Tracker {
 
     async generatePrompt(identifier: string, project: ProjectConfig): Promise<string> {
       const issue = await this.getIssue(identifier, project);
-      const { metadata, files } = readIssueMetadata(identifier, project);
+      const { metadata, files } = readIssueMetadata(identifier, project, runtimeConfig);
       const markdownPath = resolveDocPath(project, metadata, files.yamlPath);
-      const relativeYamlPath = getStoredDocPath(project, files.yamlPath);
-      const relativeMarkdownPath = getStoredDocPath(project, markdownPath);
+      const mirrorFiles = getMirrorIssueFiles(identifier, project);
       const lines = [
         `You are working on local issue ${issue.id}: ${issue.title}`,
         `Issue URL: ${issue.url}`,
-        `Issue metadata file: ${relativeYamlPath}`,
-        `Issue document file: ${relativeMarkdownPath}`,
+        `AO tracker source of truth: ${files.yamlPath}`,
         "",
       ];
 
@@ -416,24 +462,34 @@ function createLocalTracker(): Tracker {
         "",
         "Please implement the changes described in this issue.",
         "Use `ao issue update` to keep the issue state, labels, and history current as work progresses.",
-        `Before you commit, make sure ${relativeYamlPath} and ${relativeMarkdownPath} reflect the latest issue status/history changes and are staged together with the code changes for this issue.`,
-        "Do not leave the local issue files behind in the worktree while only committing code changes.",
         "When done, commit and push your changes.",
       );
+
+      if (mirrorFiles) {
+        const relativeYamlPath = getStoredDocPath(project, mirrorFiles.yamlPath);
+        const relativeMarkdownPath = getStoredDocPath(project, mirrorFiles.markdownPath);
+        lines.push(
+          "",
+          `Repo mirror metadata file: ${relativeYamlPath}`,
+          `Repo mirror document file: ${relativeMarkdownPath}`,
+          `Before you commit, make sure ${relativeYamlPath} and ${relativeMarkdownPath} reflect the latest issue status/history changes and are staged together with the code changes for this issue.`,
+          "Do not leave the repo mirror issue files behind in the worktree while only committing code changes.",
+        );
+      }
 
       return lines.join("\n");
     },
 
     async listIssues(filters: IssueFilters, project: ProjectConfig): Promise<Issue[]> {
-      const { issuesPath } = getLocalTrackerProjectConfig(project);
-      if (!existsSync(issuesPath)) {
+      const { internalIssuesPath } = getLocalTrackerProjectConfig(project, runtimeConfig);
+      if (!existsSync(internalIssuesPath)) {
         return [];
       }
 
-      const issues = readdirSync(issuesPath)
+      const issues = readdirSync(internalIssuesPath)
         .filter((entry) => entry.endsWith(".yaml"))
         .map((entry) => {
-          const yamlPath = join(issuesPath, entry);
+          const yamlPath = join(internalIssuesPath, entry);
           const metadata = parseMetadata(readFileSync(yamlPath, "utf-8"), entry);
           const markdownPath = resolveDocPath(project, metadata, yamlPath);
           const parsedMarkdown = parseMarkdownIssue(readMarkdownContent(markdownPath));
@@ -471,7 +527,7 @@ function createLocalTracker(): Tracker {
       project: ProjectConfig,
     ): Promise<void> {
       const now = new Date();
-      const { metadata, files } = readIssueMetadata(identifier, project);
+      const { metadata, files } = readIssueMetadata(identifier, project, runtimeConfig);
       const markdownPath = resolveDocPath(project, metadata, files.yamlPath);
 
       const nextLabels = new Set(metadata.labels);
@@ -497,12 +553,13 @@ function createLocalTracker(): Tracker {
 
       writeFileSync(files.yamlPath, serializeMetadata(nextMetadata), "utf-8");
       writeFileSync(markdownPath, nextMarkdown, "utf-8");
+      syncMirrorIssue(identifier, project, nextMetadata, nextMarkdown);
     },
 
     async createIssue(input: CreateIssueInput, project: ProjectConfig): Promise<Issue> {
       const now = new Date();
-      const issuesDir = ensureIssuesDir(project);
-      const id = nextIssueId(project);
+      const issuesDir = ensureIssuesDir(project, runtimeConfig);
+      const id = nextIssueId(project, runtimeConfig);
       const yamlPath = join(issuesDir, `${id}.yaml`);
       const markdownPath = join(issuesDir, `${id}.md`);
       const branchName = `feat/${id}`;
@@ -517,11 +574,13 @@ function createLocalTracker(): Tracker {
         branchName,
         createdAt: now.toISOString(),
         updatedAt: now.toISOString(),
-        docPath: getStoredDocPath(project, markdownPath),
+        docPath: markdownPath,
       };
 
+      const markdown = renderMarkdownIssue(input.title, input.description);
       writeFileSync(yamlPath, serializeMetadata(metadata), "utf-8");
-      writeFileSync(markdownPath, renderMarkdownIssue(input.title, input.description), "utf-8");
+      writeFileSync(markdownPath, markdown, "utf-8");
+      syncMirrorIssue(id, project, metadata, markdown);
 
       return {
         id,
@@ -549,4 +608,13 @@ export function create(): Tracker {
   return createLocalTracker();
 }
 
-export default { manifest, create } satisfies PluginModule<Tracker>;
+export function createWithConfig(config?: Record<string, unknown>): Tracker {
+  return createLocalTracker({
+    configPath: typeof config?.["configPath"] === "string" ? config["configPath"] : undefined,
+  });
+}
+
+export default { manifest, create: createWithConfig } satisfies PluginModule<Tracker>;
+interface LocalTrackerRuntimeConfig {
+  configPath?: string;
+}

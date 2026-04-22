@@ -461,7 +461,10 @@ export function createPluginRegistry(): PluginRegistry {
             if (orchestratorConfig && mod.manifest.slot === "notifier") {
               registerNotifier(mod, orchestratorConfig);
             } else {
-              this.register(mod);
+              this.register(
+                mod,
+                orchestratorConfig?.configPath ? { configPath: orchestratorConfig.configPath } : undefined,
+              );
             }
           } catch (error) {
             process.stderr.write(
