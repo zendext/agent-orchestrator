@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import type {
@@ -11,13 +12,13 @@ import type {
   Tracker,
   TrackerConfig,
 } from "@aoagents/ao-core";
-import { getProjectBaseDir } from "@aoagents/ao-core";
 
 const DEFAULT_MIRROR_PATH = ".ao/issues";
 const DEFAULT_ID_PREFIX = "TASK";
 const LOCAL_ISSUE_SCHEME = "local-issue://";
 const HISTORY_SECTION_HEADING = "## History";
 const SAFE_ID_PREFIX_PATTERN = /^[A-Za-z][A-Za-z0-9_-]*$/u;
+const AO_BASE_DIR = join(homedir(), ".agent-orchestrator");
 
 type LocalIssueState = Issue["state"];
 
@@ -116,9 +117,14 @@ function normalizeIdPrefix(trackerConfig?: TrackerConfig): string {
   return trimmedPrefix;
 }
 
-function resolveInternalIssuesDir(project: ProjectConfig, runtimeConfig?: LocalTrackerRuntimeConfig): string {
-  if (runtimeConfig?.configPath) {
-    return join(getProjectBaseDir(runtimeConfig.configPath, project.path), "issues");
+function resolveInternalIssuesDir(project: ProjectConfig): string {
+  const storageKey =
+    typeof (project as unknown as { storageKey?: unknown }).storageKey === "string"
+      ? (project as unknown as { storageKey: string }).storageKey
+      : undefined;
+
+  if (storageKey) {
+    return join(AO_BASE_DIR, storageKey, "issues");
   }
   // Compatibility fallback for tests or synthesized projects without a known config path.
   return resolve(project.path, ".ao/internal-issues");
@@ -136,10 +142,9 @@ function resolveMirrorIssuesDir(project: ProjectConfig): string | undefined {
 
 function getLocalTrackerProjectConfig(
   project: ProjectConfig,
-  runtimeConfig?: LocalTrackerRuntimeConfig,
 ): LocalTrackerProjectConfig {
   return {
-    internalIssuesPath: resolveInternalIssuesDir(project, runtimeConfig),
+    internalIssuesPath: resolveInternalIssuesDir(project),
     mirrorIssuesPath: resolveMirrorIssuesDir(project),
     idPrefix: normalizeIdPrefix(project.tracker),
   };
@@ -160,8 +165,8 @@ function normalizeIdentifier(identifier: string): string {
   return issuePathIdFromUrl(identifier.trim());
 }
 
-function ensureIssuesDir(project: ProjectConfig, runtimeConfig?: LocalTrackerRuntimeConfig): string {
-  const { internalIssuesPath } = getLocalTrackerProjectConfig(project, runtimeConfig);
+function ensureIssuesDir(project: ProjectConfig): string {
+  const { internalIssuesPath } = getLocalTrackerProjectConfig(project);
   mkdirSync(internalIssuesPath, { recursive: true });
   return internalIssuesPath;
 }
@@ -192,10 +197,9 @@ function resolveDocPath(
 function getIssueFiles(
   identifier: string,
   project: ProjectConfig,
-  runtimeConfig?: LocalTrackerRuntimeConfig,
 ): LocalIssueFiles {
   const normalizedId = normalizeIdentifier(identifier);
-  const { internalIssuesPath } = getLocalTrackerProjectConfig(project, runtimeConfig);
+  const { internalIssuesPath } = getLocalTrackerProjectConfig(project);
   return {
     issuesDir: internalIssuesPath,
     yamlPath: join(internalIssuesPath, `${normalizedId}.yaml`),
@@ -312,12 +316,11 @@ function appendHistoryEntry(content: string, comment: string, now: Date): string
 function readIssueMetadata(
   identifier: string,
   project: ProjectConfig,
-  runtimeConfig?: LocalTrackerRuntimeConfig,
 ): {
   metadata: LocalIssueMetadata;
   files: LocalIssueFiles;
 } {
-  const files = getIssueFiles(identifier, project, runtimeConfig);
+  const files = getIssueFiles(identifier, project);
   if (!existsSync(files.yamlPath)) {
     const normalizedId = normalizeIdentifier(identifier);
     throw new Error(`Issue ${normalizedId} not found`);
@@ -375,8 +378,8 @@ function syncMirrorIssue(
   writeFileSync(mirrorFiles.markdownPath, markdown, "utf-8");
 }
 
-function nextIssueId(project: ProjectConfig, runtimeConfig?: LocalTrackerRuntimeConfig): string {
-  const { internalIssuesPath, idPrefix } = getLocalTrackerProjectConfig(project, runtimeConfig);
+function nextIssueId(project: ProjectConfig): string {
+  const { internalIssuesPath, idPrefix } = getLocalTrackerProjectConfig(project);
   if (!existsSync(internalIssuesPath)) {
     return `${idPrefix}-1`;
   }
@@ -395,19 +398,19 @@ function nextIssueId(project: ProjectConfig, runtimeConfig?: LocalTrackerRuntime
   return `${idPrefix}-${maxNumber + 1}`;
 }
 
-function createLocalTracker(runtimeConfig?: LocalTrackerRuntimeConfig): Tracker {
+function createLocalTracker(): Tracker {
   return {
     name: "local",
 
     async getIssue(identifier: string, project: ProjectConfig): Promise<Issue> {
-      const { metadata, files } = readIssueMetadata(identifier, project, runtimeConfig);
+      const { metadata, files } = readIssueMetadata(identifier, project);
       const markdownPath = resolveDocPath(project, metadata, files.yamlPath);
       const parsedMarkdown = parseMarkdownIssue(readMarkdownContent(markdownPath));
       return toIssue(metadata, parsedMarkdown.description);
     },
 
     async isCompleted(identifier: string, project: ProjectConfig): Promise<boolean> {
-        const { metadata } = readIssueMetadata(identifier, project, runtimeConfig);
+      const { metadata } = readIssueMetadata(identifier, project);
       return isClosedLikeState(metadata.state);
     },
 
@@ -427,7 +430,7 @@ function createLocalTracker(runtimeConfig?: LocalTrackerRuntimeConfig): Tracker 
 
     branchName(identifier: string, project: ProjectConfig): string {
       try {
-        const { metadata } = readIssueMetadata(identifier, project, runtimeConfig);
+        const { metadata } = readIssueMetadata(identifier, project);
         if (metadata.branchName) {
           return metadata.branchName;
         }
@@ -440,7 +443,7 @@ function createLocalTracker(runtimeConfig?: LocalTrackerRuntimeConfig): Tracker 
 
     async generatePrompt(identifier: string, project: ProjectConfig): Promise<string> {
       const issue = await this.getIssue(identifier, project);
-      const { metadata, files } = readIssueMetadata(identifier, project, runtimeConfig);
+      const { metadata, files } = readIssueMetadata(identifier, project);
       const markdownPath = resolveDocPath(project, metadata, files.yamlPath);
       const mirrorFiles = getMirrorIssueFiles(identifier, project);
       const lines = [
@@ -481,7 +484,7 @@ function createLocalTracker(runtimeConfig?: LocalTrackerRuntimeConfig): Tracker 
     },
 
     async listIssues(filters: IssueFilters, project: ProjectConfig): Promise<Issue[]> {
-      const { internalIssuesPath } = getLocalTrackerProjectConfig(project, runtimeConfig);
+      const { internalIssuesPath } = getLocalTrackerProjectConfig(project);
       if (!existsSync(internalIssuesPath)) {
         return [];
       }
@@ -527,7 +530,7 @@ function createLocalTracker(runtimeConfig?: LocalTrackerRuntimeConfig): Tracker 
       project: ProjectConfig,
     ): Promise<void> {
       const now = new Date();
-      const { metadata, files } = readIssueMetadata(identifier, project, runtimeConfig);
+      const { metadata, files } = readIssueMetadata(identifier, project);
       const markdownPath = resolveDocPath(project, metadata, files.yamlPath);
 
       const nextLabels = new Set(metadata.labels);
@@ -558,8 +561,8 @@ function createLocalTracker(runtimeConfig?: LocalTrackerRuntimeConfig): Tracker 
 
     async createIssue(input: CreateIssueInput, project: ProjectConfig): Promise<Issue> {
       const now = new Date();
-      const issuesDir = ensureIssuesDir(project, runtimeConfig);
-      const id = nextIssueId(project, runtimeConfig);
+      const issuesDir = ensureIssuesDir(project);
+      const id = nextIssueId(project);
       const yamlPath = join(issuesDir, `${id}.yaml`);
       const markdownPath = join(issuesDir, `${id}.md`);
       const branchName = `feat/${id}`;
@@ -608,13 +611,4 @@ export function create(): Tracker {
   return createLocalTracker();
 }
 
-export function createWithConfig(config?: Record<string, unknown>): Tracker {
-  return createLocalTracker({
-    configPath: typeof config?.["configPath"] === "string" ? config["configPath"] : undefined,
-  });
-}
-
-export default { manifest, create: createWithConfig } satisfies PluginModule<Tracker>;
-interface LocalTrackerRuntimeConfig {
-  configPath?: string;
-}
+export default { manifest, create } satisfies PluginModule<Tracker>;

@@ -1,10 +1,10 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
-import { getProjectBaseDir, type ProjectConfig } from "@aoagents/ao-core";
-import { createWithConfig, manifest } from "../src/index.js";
+import type { ProjectConfig } from "@aoagents/ao-core";
+import { create, manifest } from "../src/index.js";
 
 function makeProject(
   path: string,
@@ -13,6 +13,7 @@ function makeProject(
   return {
     name: "test-project",
     path,
+    storageKey: `tracker-local-${basename(path)}`,
     repo: "acme/test-project",
     defaultBranch: "main",
     sessionPrefix: "test",
@@ -22,18 +23,26 @@ function makeProject(
 
 describe("tracker-local plugin", () => {
   let tempDir: string;
-  let configPath: string;
-  let tracker: ReturnType<typeof createWithConfig>;
+  let tracker: ReturnType<typeof create>;
+  let internalDir: string;
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), "ao-tracker-local-"));
-    configPath = join(tempDir, "agent-orchestrator.yaml");
-    writeFileSync(configPath, "projects: {}\n", "utf-8");
-    tracker = createWithConfig({ configPath });
+    tracker = create();
+    internalDir = join(
+      process.env["HOME"] || "",
+      ".agent-orchestrator",
+      `tracker-local-${basename(tempDir)}`,
+      "issues",
+    );
   });
 
   afterEach(() => {
     rmSync(tempDir, { recursive: true, force: true });
+    rmSync(join(process.env["HOME"] || "", ".agent-orchestrator", `tracker-local-${basename(tempDir)}`), {
+      recursive: true,
+      force: true,
+    });
   });
 
   it("exposes the expected manifest", () => {
@@ -48,7 +57,6 @@ describe("tracker-local plugin", () => {
 
   it("createIssue writes YAML metadata and Markdown body", async () => {
     const project = makeProject(tempDir);
-    const internalDir = join(getProjectBaseDir(configPath, project.path), "issues");
 
     const issue = await tracker.createIssue!(
       {
@@ -226,8 +234,6 @@ describe("tracker-local plugin", () => {
       idPrefix: "BUG",
       mirrorPath: ".tracker/issues",
     });
-    const internalDir = join(getProjectBaseDir(configPath, project.path), "issues");
-
     const issue = await tracker.createIssue!(
       {
         title: "Fix login bug",
@@ -265,7 +271,6 @@ describe("tracker-local plugin", () => {
 
   it("uses explicit branchName from metadata when present", async () => {
     const project = makeProject(tempDir);
-    const internalDir = join(getProjectBaseDir(configPath, project.path), "issues");
     await tracker.createIssue!(
       {
         title: "Fix login bug",
@@ -295,7 +300,7 @@ describe("tracker-local plugin", () => {
     );
 
     const prompt = await tracker.generatePrompt!("TASK-1", project);
-    expect(prompt).toContain(`AO tracker source of truth: ${join(getProjectBaseDir(configPath, project.path), "issues", "TASK-1.yaml")}`);
+    expect(prompt).toContain(`AO tracker source of truth: ${join(internalDir, "TASK-1.yaml")}`);
     expect(prompt).toContain("Repo mirror metadata file: .ao/issues/TASK-1.yaml");
     expect(prompt).toContain("Repo mirror document file: .ao/issues/TASK-1.md");
     expect(prompt).toContain("Use `ao issue update` to keep the issue state, labels, and history current as work progresses.");

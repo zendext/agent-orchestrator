@@ -1,18 +1,15 @@
 #!/usr/bin/env node
 
-import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
-  realpathSync,
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, basename, isAbsolute, join, resolve } from "node:path";
-import { homedir } from "node:os";
-import { loadConfig } from "../packages/core/dist/index.js";
+import { isAbsolute, join, resolve } from "node:path";
+import { getProjectBaseDir, loadConfig } from "../packages/core/dist/index.js";
 
 function fail(message) {
   console.error(message);
@@ -71,26 +68,6 @@ function resolveConfigPath(configOpt) {
     fail("Could not find agent-orchestrator.yaml in the current directory. Pass --config explicitly.");
   }
   return found;
-}
-
-function asObject(value, context) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    fail(`Expected object at ${context}`);
-  }
-  return value;
-}
-
-function getProjectBaseDir(configPath, projectPath) {
-  let resolvedConfigPath;
-  try {
-    resolvedConfigPath = realpathSync(configPath);
-  } catch {
-    resolvedConfigPath = resolve(configPath);
-  }
-  const configDir = dirname(resolvedConfigPath);
-  const hash = createHash("sha256").update(configDir).digest("hex").slice(0, 12);
-  const projectId = basename(resolve(projectPath));
-  return join(homedir(), ".agent-orchestrator", `${hash}-${projectId}`);
 }
 
 function resolveSourceDir(project, sourceOpt) {
@@ -160,8 +137,11 @@ function main() {
   if (!existsSync(sourceDir)) {
     fail(`Source issue directory does not exist: ${sourceDir}`);
   }
+  if (!project.storageKey) {
+    fail(`Project ${options.project} does not have a storageKey. Re-save or migrate the AO config first.`);
+  }
 
-  const targetDir = join(getProjectBaseDir(configPath, project.path), "issues");
+  const targetDir = join(getProjectBaseDir(project.storageKey), "issues");
   if (!options.dryRun) {
     mkdirSync(targetDir, { recursive: true });
   }
