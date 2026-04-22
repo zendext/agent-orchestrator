@@ -986,6 +986,48 @@ describe("enrichSessionsMetadata", () => {
     expect(dashboard.issueTitle).toBe("Fix auth bug");
   });
 
+  it("accepts local-issue URLs from tracker.issueUrl", async () => {
+    const tracker: Tracker = {
+      name: "local",
+      getIssue: vi.fn().mockResolvedValue({
+        id: "TASK-10",
+        title: "Fix local tracker workflow",
+        description: "Description",
+        url: "local-issue://TASK-10",
+        state: "open",
+        labels: [],
+      }),
+      isCompleted: vi.fn().mockResolvedValue(false),
+      issueUrl: vi.fn().mockReturnValue("local-issue://TASK-10"),
+      issueLabel: vi.fn().mockReturnValue("TASK-10"),
+      branchName: vi.fn().mockReturnValue("feat/TASK-10"),
+      generatePrompt: vi.fn().mockResolvedValue("prompt"),
+    };
+    const agent = mockAgent("Implementing local tracker fix");
+    const registry = mockRegistry(tracker, agent);
+
+    const localProject: ProjectConfig = {
+      ...testProject,
+      tracker: { plugin: "local" },
+      scm: undefined,
+      repo: undefined,
+    };
+    const localConfig = {
+      ...testConfig,
+      projects: { test: localProject },
+    } as OrchestratorConfig;
+
+    const core = createCoreSession({ issueId: "TASK-10" });
+    const dashboard = sessionToDashboard(core);
+
+    await enrichSessionsMetadata([core], [dashboard], localConfig, registry);
+
+    expect(tracker.issueUrl).toHaveBeenCalledWith("TASK-10", localProject);
+    expect(dashboard.issueUrl).toBe("local-issue://TASK-10");
+    expect(dashboard.issueLabel).toBe("TASK-10");
+    expect(dashboard.issueTitle).toBe("Fix local tracker workflow");
+  });
+
   it("preserves URL-shaped issueId without passing it through tracker.issueUrl", async () => {
     const tracker = mockTracker("Fix auth bug");
     const agent = mockAgent("Implementing auth fix");

@@ -29,6 +29,15 @@ interface SessionCardProps {
   onRestore?: (sessionId: string) => void;
 }
 
+function isBrowserNavigableUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Determine the status display info for done cards.
  */
@@ -354,16 +363,23 @@ function SessionCardView({ session, onSend, onKill, onMerge, onRestore }: Sessio
                   </svg>
                   Issue
                 </div>
-                <a
-                  href={session.issueUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={(e) => e.stopPropagation()}
-                  className="text-[12px] text-[var(--color-accent)] hover:underline"
-                >
-                  {session.issueLabel || session.issueUrl}
-                  {session.issueTitle && `: ${session.issueTitle}`}
-                </a>
+                {isBrowserNavigableUrl(session.issueUrl) ? (
+                  <a
+                    href={session.issueUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="text-[12px] text-[var(--color-accent)] hover:underline"
+                  >
+                    {session.issueLabel || session.issueUrl}
+                    {session.issueTitle && `: ${session.issueTitle}`}
+                  </a>
+                ) : (
+                  <span className="text-[12px] text-[var(--color-text-secondary)]">
+                    {session.issueLabel || session.issueUrl}
+                    {session.issueTitle && `: ${session.issueTitle}`}
+                  </span>
+                )}
               </div>
             )}
 

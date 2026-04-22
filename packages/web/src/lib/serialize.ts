@@ -36,7 +36,11 @@ const issueTitleMissCache = new TTLCache<boolean>(120_000);
 function isAbsoluteUrl(value: string): boolean {
   try {
     const parsed = new URL(value);
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
+    return (
+      parsed.protocol === "http:" ||
+      parsed.protocol === "https:" ||
+      parsed.protocol === "local-issue:"
+    );
   } catch {
     return false;
   }
