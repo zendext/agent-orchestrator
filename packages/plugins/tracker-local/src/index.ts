@@ -392,9 +392,15 @@ function createLocalTracker(): Tracker {
 
     async generatePrompt(identifier: string, project: ProjectConfig): Promise<string> {
       const issue = await this.getIssue(identifier, project);
+      const { metadata, files } = readIssueMetadata(identifier, project);
+      const markdownPath = resolveDocPath(project, metadata, files.yamlPath);
+      const relativeYamlPath = getStoredDocPath(project, files.yamlPath);
+      const relativeMarkdownPath = getStoredDocPath(project, markdownPath);
       const lines = [
         `You are working on local issue ${issue.id}: ${issue.title}`,
         `Issue URL: ${issue.url}`,
+        `Issue metadata file: ${relativeYamlPath}`,
+        `Issue document file: ${relativeMarkdownPath}`,
         "",
       ];
 
@@ -408,7 +414,11 @@ function createLocalTracker(): Tracker {
 
       lines.push(
         "",
-        "Please implement the changes described in this issue. When done, commit and push your changes.",
+        "Please implement the changes described in this issue.",
+        "Use `ao issue update` to keep the issue state, labels, and history current as work progresses.",
+        `Before you commit, make sure ${relativeYamlPath} and ${relativeMarkdownPath} reflect the latest issue status/history changes and are staged together with the code changes for this issue.`,
+        "Do not leave the local issue files behind in the worktree while only committing code changes.",
+        "When done, commit and push your changes.",
       );
 
       return lines.join("\n");

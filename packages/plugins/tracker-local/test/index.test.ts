@@ -265,6 +265,25 @@ describe("tracker-local plugin", () => {
     expect(tracker.branchName("TASK-1", project)).toBe("custom/TASK-1");
   });
 
+  it("generatePrompt includes local issue file paths and commit instructions", async () => {
+    const project = makeProject(tempDir);
+    await tracker.createIssue!(
+      {
+        title: "Fix login bug",
+        description: "Main issue description here.",
+      },
+      project,
+    );
+
+    const prompt = await tracker.generatePrompt!("TASK-1", project);
+    expect(prompt).toContain("Issue metadata file: .ao/issues/TASK-1.yaml");
+    expect(prompt).toContain("Issue document file: .ao/issues/TASK-1.md");
+    expect(prompt).toContain("Use `ao issue update` to keep the issue state, labels, and history current as work progresses.");
+    expect(prompt).toContain(
+      "Before you commit, make sure .ao/issues/TASK-1.yaml and .ao/issues/TASK-1.md reflect the latest issue status/history changes and are staged together with the code changes for this issue.",
+    );
+  });
+
   it("extracts local issue labels from ids and pseudo URLs", () => {
     const project = makeProject(tempDir);
     expect(tracker.issueLabel!("TASK-1", project)).toBe("TASK-1");
